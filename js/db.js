@@ -639,6 +639,111 @@ function getStoreName(key) {
 }
 
 /**
+ * Save task completion for a farm
+ * @param {string} farmId - The farm ID
+ * @param {number} stageIndex - The stage index
+ * @param {number} taskIndex - The task index within the stage
+ * @param {string} scheduledDate - The original scheduled date (ISO string)
+ * @param {string} completedDate - The actual completion date (ISO string)
+ */
+async function saveTaskCompletion(farmId, stageIndex, taskIndex, scheduledDate, completedDate) {
+  try {
+    const farm = await getFarm(farmId);
+    if (!farm) {
+      throw new Error('Farm not found');
+    }
+
+    // Initialize taskCompletions array if it doesn't exist
+    if (!farm.taskCompletions) {
+      farm.taskCompletions = [];
+    }
+
+    // Calculate delay in days
+    const scheduled = new Date(scheduledDate);
+    const completed = new Date(completedDate);
+    scheduled.setHours(0, 0, 0, 0);
+    completed.setHours(0, 0, 0, 0);
+    const delayDays = Math.floor((completed - scheduled) / (1000 * 60 * 60 * 24));
+
+    // Check if completion already exists
+    const existingIndex = farm.taskCompletions.findIndex(
+      tc => tc.stageIndex === stageIndex && tc.taskIndex === taskIndex
+    );
+
+    const completion = {
+      stageIndex,
+      taskIndex,
+      scheduledDate,
+      completedDate,
+      delayDays,
+      timestamp: new Date().toISOString()
+    };
+
+    if (existingIndex >= 0) {
+      // Update existing completion
+      farm.taskCompletions[existingIndex] = completion;
+    } else {
+      // Add new completion
+      farm.taskCompletions.push(completion);
+    }
+
+    farm.updatedAt = new Date().toISOString();
+    await saveFarm(farm);
+    
+    console.log(`[IndexedDB] Saved task completion for farm ${farmId}, stage ${stageIndex}, task ${taskIndex}`);
+    return completion;
+  } catch (error) {
+    console.error('[IndexedDB] Error saving task completion:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get all task completions for a farm
+ * @param {string} farmId - The farm ID
+ * @returns {Array} Array of task completion objects
+ */
+async function getTaskCompletions(farmId) {
+  try {
+    const farm = await getFarm(farmId);
+    if (!farm) {
+      return [];
+    }
+    return farm.taskCompletions || [];
+  } catch (error) {
+    console.error('[IndexedDB] Error getting task completions:', error);
+    return [];
+  }
+}
+
+/**
+ * Delete a task completion (undo)
+ * @param {string} farmId - The farm ID
+ * @param {number} stageIndex - The stage index
+ * @param {number} taskIndex - The task index
+ */
+async function deleteTaskCompletion(farmId, stageIndex, taskIndex) {
+  try {
+    const farm = await getFarm(farmId);
+    if (!farm || !farm.taskCompletions) {
+      return;
+    }
+
+    farm.taskCompletions = farm.taskCompletions.filter(
+      tc => !(tc.stageIndex === stageIndex && tc.taskIndex === taskIndex)
+    );
+
+    farm.updatedAt = new Date().toISOString();
+    await saveFarm(farm);
+    
+    console.log(`[IndexedDB] Deleted task completion for farm ${farmId}, stage ${stageIndex}, task ${taskIndex}`);
+  } catch (error) {
+    console.error('[IndexedDB] Error deleting task completion:', error);
+    throw error;
+  }
+}
+
+/**
  * Export all data as JSON for backup
  * @returns {Object} All data including farms and expenses
  */
@@ -755,6 +860,9 @@ const IndexedDBStorage = {
   migrateLegacyData,
   exportAllData,
   importAllData,
+  saveTaskCompletion,
+  getTaskCompletions,
+  deleteTaskCompletion,
   initDB
 };
 
